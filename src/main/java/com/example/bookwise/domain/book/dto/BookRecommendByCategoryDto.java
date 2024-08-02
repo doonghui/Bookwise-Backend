@@ -12,8 +12,8 @@ import java.util.List;
 @AllArgsConstructor
 public class BookRecommendByCategoryDto {
 
-    List<BookByMlDto> first;
-    List<BookByMlDto> second;
+    List<BookDisplayDto> first;
+    List<BookDisplayDto> second;
 
 //    public BookRecommendByCategoryDto(List<BookByMlDto> first,List<BookByMlDto> second) {
 //        this.first = first;

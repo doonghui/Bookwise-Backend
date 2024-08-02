@@ -1,6 +1,7 @@
 package com.example.bookwise.domain.oauth.service;
 
 import com.example.bookwise.domain.oauth.jwt.JwtTokenProvider;
+import com.example.bookwise.domain.redis.RedisUtil;
 import com.example.bookwise.global.error.CustomForbiddenException;
 import io.jsonwebtoken.JwtException;
 import lombok.RequiredArgsConstructor;
@@ -18,8 +19,8 @@ public class OAuthLogoutService {
 
     private final JwtTokenProvider jwtTokenProvider;
 
-//    private final RedisUtil redisUtil;
-//    private final AccessTokenRepository accessTokenRepository;
+    private final RedisUtil redisUtil;
+  //  private final AccessTokenRepository accessTokenRepository;
 
     @Transactional
     public void logout(String accessToken) {
@@ -29,7 +30,7 @@ public class OAuthLogoutService {
             throw new CustomForbiddenException("허용되지 않는 작업입니다");
         }
 
-//        redisUtil.setBlackList(accessToken, accessToken, jwtTokenProvider.getExpiration(accessToken));
+        redisUtil.setBlackList(accessToken, accessToken, jwtTokenProvider.getExpiration(accessToken));
 
     }
 

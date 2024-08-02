@@ -1,6 +1,7 @@
 package com.example.bookwise.domain.oauth.jwt;
 
 
+import com.example.bookwise.domain.redis.RedisUtil;
 import com.example.bookwise.global.error.CustomForbiddenException;
 import io.jsonwebtoken.*;
 import io.jsonwebtoken.io.Decoders;
@@ -19,11 +20,10 @@ public class JwtTokenProvider {
 
     private final Key key;
 
-//    private final RedisUtil redisUtil;
+    private final RedisUtil redisUtil;
 
-    public JwtTokenProvider(@Value("${jwt.secret-key}") String secretKey) {
-//        this.redisUtil = redisUtil;
-        //    this.redisUtil = redisUtil;
+    public JwtTokenProvider(@Value("${jwt.secret-key}") String secretKey, RedisUtil redisUtil) {
+        this.redisUtil = redisUtil;
         byte[] keyBytes = Decoders.BASE64.decode(secretKey);
         this.key = Keys.hmacShaKeyFor(keyBytes);
     }
@@ -71,10 +71,10 @@ public class JwtTokenProvider {
                     .setSigningKey(key)
                     .build()
                     .parseClaimsJws(accessToken);
-//            if(redisUtil.hasKeyBlackList(accessToken)) {        // 로그아웃 끝난 토큰
-//                log.info("로그아웃된 토큰입니다.");
-//                return false;
-//            }
+            if (redisUtil.hasKeyBlackList(accessToken)) {        // 로그아웃 끝난 토큰
+                log.info("로그아웃된 토큰입니다.");
+                return false;
+            }
             return true;  //유효하다면 true 반환
         } catch (MalformedJwtException e) {
             log.info("잘못된 JWT 서명입니다.");
@@ -82,13 +82,13 @@ public class JwtTokenProvider {
         } catch (UnsupportedJwtException e) {
             log.info("지원되지 않는 토큰입니다.");
             return false;
-        } catch(ExpiredJwtException e){
+        } catch (ExpiredJwtException e) {
             log.info("만료된 토큰입니다.");
             return false;
         } catch (IllegalArgumentException e) {
             log.info("토큰이 잘못되었습니다.");
             return false;
-    }
+        }
     }
 
     public boolean validRefreshToken(String refreshToken) throws Exception {
@@ -107,15 +107,13 @@ public class JwtTokenProvider {
     }
 
     public Long getExpiration(String accessToken) {
-        Claims claims= Jwts.parserBuilder()
+        Claims claims = Jwts.parserBuilder()
                 .setSigningKey(key)
                 .build()
                 .parseClaimsJws(accessToken)
                 .getBody();
         return claims.getExpiration().getTime();
     }
-
-
 
 
     private String getUsername(String accessToken) {

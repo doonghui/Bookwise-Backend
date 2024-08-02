@@ -4,13 +4,10 @@ package com.example.bookwise.domain.book.dto;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 
-@AllArgsConstructor
 @Getter
+@AllArgsConstructor
 public class BookDisplayDto {
 
-
-    private String title;
-    private String bookId;
-    private String coverUrl;
-
+    private String isbn13;
+    private String coverURL;
 }

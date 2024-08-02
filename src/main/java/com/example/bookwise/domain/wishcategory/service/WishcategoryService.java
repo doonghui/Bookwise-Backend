@@ -1,26 +1,18 @@
 package com.example.bookwise.domain.wishcategory.service;
 
-import com.example.bookwise.domain.book.dto.BookByMlDto;
 import com.example.bookwise.domain.user.entity.User;
 import com.example.bookwise.domain.user.repository.UserRepository;
 import com.example.bookwise.domain.wishcategory.entity.Wishcategory;
 import com.example.bookwise.domain.wishcategory.repository.WishcategoryRepository;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.client.RestTemplate;
-import org.springframework.web.util.UriComponentsBuilder;
 
 
-import java.io.IOException;
 import java.util.*;
 
 @Service

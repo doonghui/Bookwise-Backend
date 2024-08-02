@@ -4,7 +4,6 @@ import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
-import java.util.ArrayList;
 import java.util.List;
 
 
@@ -14,9 +13,9 @@ import java.util.List;
 public class BookRecommendResponse {
 
     List<String> wishcategories;
-    List<BookByMlDto>userRecommend;
-    List<BookByMlDto>preferOne;
-    List<BookByMlDto>preferTwo;
+    List<BookDisplayDto>userRecommend;
+    List<BookDisplayDto>preferOne;
+    List<BookDisplayDto>preferTwo;
 
 
 

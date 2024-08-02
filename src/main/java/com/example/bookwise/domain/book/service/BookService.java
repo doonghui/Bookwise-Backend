@@ -1,14 +1,15 @@
 package com.example.bookwise.domain.book.service;
 
+import com.example.bookwise.domain.book.Enum.BestSeller;
+import com.example.bookwise.domain.book.Enum.Category;
 import com.example.bookwise.domain.book.dto.*;
 import com.example.bookwise.domain.book.entity.Book;
 import com.example.bookwise.domain.book.repository.BookRepository;
 import com.example.bookwise.domain.bookclick.entity.BookClick;
 import com.example.bookwise.domain.bookclick.repository.BookClickRepository;
 import com.example.bookwise.domain.bookclick.service.BookClickService;
-import com.example.bookwise.domain.library.dto.HasBookDto;
-import com.example.bookwise.domain.library.dto.LibraryComparisonDto;
 import com.example.bookwise.domain.library.dto.LibraryInitDBDto;
+import com.example.bookwise.domain.redis.RedisUtil;
 import com.example.bookwise.domain.user.entity.User;
 import com.example.bookwise.domain.user.repository.UserRepository;
 import com.example.bookwise.domain.wishcategory.entity.Wishcategory;
@@ -22,7 +23,6 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.swagger.v3.oas.models.info.Info;
 import jakarta.persistence.EntityExistsException;
 import jakarta.persistence.EntityNotFoundException;
 import jakarta.transaction.Transactional;
@@ -36,6 +36,7 @@ import org.springframework.web.util.UriComponentsBuilder;
 
 import java.io.IOException;
 import java.util.*;
+
 
 @Service
 @Slf4j
@@ -59,8 +60,47 @@ public class BookService {
     private final ObjectMapper objectMapper;
     private final UserRepository userRepository;
     private final BookRepository bookRepository;
+    private final RedisUtil redisUtil;
 
 
+    // 비로그인시 보여주는 추천 도서들
+    public void createBookListByCategory(String category, String startAge, String endAge, String pageSize) throws Exception {
+
+
+        String urlStr;
+        if (category.equals("베스트")) {        // 베스트셀러 추천
+            urlStr = "http://data4library.kr/api/loanItemSrchByLib?authKey=" + libraryInitDB.getLibraryBigdataKey()
+                    + "&region=" + libraryInitDB.getRegion()
+                    + "&pageNo=" + libraryInitDB.getPageNo()
+                    + "&pageSize=" + pageSize
+                    + "&format=" + libraryInitDB.getFormat();
+        } else {        // 연령별 추천
+            urlStr = "http://data4library.kr/api/loanItemSrchByLib?authKey=" + libraryInitDB.getLibraryBigdataKey()
+                    + "&region=" + libraryInitDB.getRegion()
+                    + "&from_age=" + startAge
+                    + "&end_age=" + endAge
+                    + "&pageNo=" + libraryInitDB.getPageNo()
+                    + "&pageSize=" + pageSize
+                    + "&format=" + libraryInitDB.getFormat();
+
+        }
+
+
+        String response = restTemplate.getForObject(urlStr, String.class);
+        JsonNode rootNode = objectMapper.readTree(response);
+        JsonNode responseNode = rootNode.get("response");
+        JsonNode info = responseNode.get("docs");
+
+        HashMap<String, String> map = new HashMap<>();
+        for (JsonNode docs : info) {
+            JsonNode doc = docs.get("doc");
+
+            map.put(doc.get("isbn13").asText(), doc.get("bookImageURL").asText());
+        }
+
+        redisUtil.setBookList(category, map);
+
+    }
 
 
     // 10 ~ 20 청소년 도서 조회
@@ -82,58 +122,36 @@ public class BookService {
         ArrayList<BookDisplayDto> bookDisplayDtos = new ArrayList<>();
         for (JsonNode docs : info) {
             JsonNode doc = docs.get("doc");
-            bookDisplayDtos.add(new BookDisplayDto(doc.get("bookname").asText(),doc.get("isbn13").asText(),doc.get("bookImageURL").asText()));
-
-        }
-    return ResponseEntity.ok(bookDisplayDtos);
-    }
-    // 20 ~ 40 청년 도서 조회
-    public ResponseEntity<?> getBookDisplay1() throws Exception {
-        String urlStr = "http://data4library.kr/api/loanItemSrchByLib?authKey=" + libraryInitDB.getLibraryBigdataKey()
-                + "&region=" + libraryInitDB.getRegion()
-                + "&from_age=20"
-                + "&end_age=40"
-                + "&pageNo=" + libraryInitDB.getPageNo()
-                + "&pageSize=200"
-                + "&format=" + libraryInitDB.getFormat();
-
-
-        String response = restTemplate.getForObject(urlStr, String.class);
-        JsonNode rootNode = objectMapper.readTree(response);
-        JsonNode responseNode = rootNode.get("response");
-        JsonNode info = responseNode.get("docs");
-
-        ArrayList<BookDisplayDto> bookDisplayDtos = new ArrayList<>();
-        for (JsonNode docs : info) {
-            JsonNode doc = docs.get("doc");
-            bookDisplayDtos.add(new BookDisplayDto(doc.get("bookname").asText(),doc.get("isbn13").asText(),doc.get("bookImageURL").asText()));
+            bookDisplayDtos.add(new BookDisplayDto(doc.get("isbn13").asText(), doc.get("bookImageURL").asText()));
 
         }
         return ResponseEntity.ok(bookDisplayDtos);
     }
-    // 40 ~ 50 장년 도서 조회
-    public ResponseEntity<?> getBookDisplay2() throws Exception {
-        String urlStr = "http://data4library.kr/api/loanItemSrchByLib?authKey=" + libraryInitDB.getLibraryBigdataKey()
-                + "&region=" + libraryInitDB.getRegion()
-                + "&from_age=40"
-                + "&end_age=50"
-                + "&pageNo=" + libraryInitDB.getPageNo()
-                + "&pageSize=200"
-                + "&format=" + libraryInitDB.getFormat();
+
+    public BookDisplayDtoResponse getBookListByCategory() throws Exception {
 
 
-        String response = restTemplate.getForObject(urlStr, String.class);
-        JsonNode rootNode = objectMapper.readTree(response);
-        JsonNode responseNode = rootNode.get("response");
-        JsonNode info = responseNode.get("docs");
+        List<BookDisplayByCategoryDto> bookDisplayByCategoryDto = new ArrayList<>();
 
-        ArrayList<BookDisplayDto> bookDisplayDtos = new ArrayList<>();
-        for (JsonNode docs : info) {
-            JsonNode doc = docs.get("doc");
-            bookDisplayDtos.add(new BookDisplayDto(doc.get("bookname").asText(),doc.get("isbn13").asText(),doc.get("bookImageURL").asText()));
+        BestSeller[] bookList = BestSeller.values();
+        for (BestSeller book : bookList) {
+            Map<Object, Object> map = redisUtil.getBookList(book.getValue());
+            List<BookDisplayDto> bookDisplayDtos = new ArrayList<>();
+            for (Map.Entry<Object, Object> entry : map.entrySet()) {
+                String isbn = entry.getKey().toString();
+                String coverUrl = entry.getValue().toString();
+                bookDisplayDtos.add(new BookDisplayDto(isbn, coverUrl));
+            }
 
+            // 200개중에서 랜덤으로 10개 출력
+            Collections.shuffle(bookDisplayDtos);
+            List<BookDisplayDto> randomKeys = bookDisplayDtos.subList(0, 10);
+
+            bookDisplayByCategoryDto.add(new BookDisplayByCategoryDto(book.getValue(), randomKeys));
         }
-        return ResponseEntity.ok(bookDisplayDtos);
+
+
+        return new BookDisplayDtoResponse(bookDisplayByCategoryDto);
     }
 
     public ResponseEntity<?> getBookDetails(String isbn, Long userId) throws Exception {
@@ -153,97 +171,97 @@ public class BookService {
         }
 
 
-        WishlistIsExistDto wishlistIsExistDto = wishlistService.getWishlistByBook(userId,isbn);
+        WishlistIsExistDto wishlistIsExistDto = wishlistService.getWishlistByBook(userId, isbn);
 
         // 책 클릭수 증가
-        if(userId != -1L) {
+        if (userId != -1L) {
             bookClickService.clickBook(userId, isbn);
 //            wishlistIsExistDto = new WishlistIsExistDto("N");
         }
 
-        BookDetailDto bookDetailDto = new BookDetailDto(book.getBookId(),book.getCoverUrl(),book.getTitle(),book.getAuthor(),book.getStyleDesc(),book.getPublishDate(),book.getPublisher(),book.getCategory(), book.getSubcategory(),book.getDescription(),book.getItemId(),wishlistIsExistDto.getWishlistExist());
+        BookDetailDto bookDetailDto = new BookDetailDto(book.getBookId(), book.getCoverUrl(), book.getTitle(), book.getAuthor(), book.getStyleDesc(), book.getPublishDate(), book.getPublisher(), book.getCategory(), book.getSubcategory(), book.getDescription(), book.getItemId(), wishlistIsExistDto.getWishlistExist());
 
-            return ResponseEntity.ok(bookDetailDto);
-        }
+        return ResponseEntity.ok(bookDetailDto);
+    }
 
-        // 리뷰데이터 받기
-        public ResponseEntity<?> getItemIdToDataTeam (String bookId) throws JsonProcessingException {
+    // 리뷰데이터 받기
+    public ResponseEntity<?> getItemIdToDataTeam(String bookId) throws JsonProcessingException {
 
-            Optional<Book> isBook = bookRepository.findByBookId(bookId);
+        Optional<Book> isBook = bookRepository.findByBookId(bookId);
 
-            Book book = null;
+        Book book = null;
 
-            if (isBook.isPresent()) {         // db에 존재하면 그냥 return
-                book = isBook.get();
+        if (isBook.isPresent()) {         // db에 존재하면 그냥 return
+            book = isBook.get();
 
-            } else {                        // db에 없으면 알라딘에서 가져오기
-                book = new Book(findBookAladin(bookId));
-            }
-
-
-
-            String dataTeamApiUrl = String.format(url+"/api/sentiment/reviews/%s", book.getItemId());
-            //      String response  = restTemplate.postForObject(dataTeamApiUrl, null, String.class);
-            String response = restTemplate.getForObject(dataTeamApiUrl, String.class);
-
-            BookReviewDto list = objectMapper.readValue(response, BookReviewDto.class);
-            return ResponseEntity.ok(list);
+        } else {                        // db에 없으면 알라딘에서 가져오기
+            book = new Book(findBookAladin(bookId));
         }
 
 
-        // 카테고리 높은 2개 보내고 추천 도서들 받기
-        private BookRecommendByCategoryDto getBooksByCategoryCount (Wishcategory categoryFirst,Wishcategory categorySecond) throws IOException {
+        String dataTeamApiUrl = String.format(url + "/api/sentiment/reviews/%s", book.getItemId());
+        //      String response  = restTemplate.postForObject(dataTeamApiUrl, null, String.class);
+        String response = restTemplate.getForObject(dataTeamApiUrl, String.class);
 
-            // ML 서버 URL 설정
-            String urlStr = UriComponentsBuilder.fromHttpUrl(url)
-                    .path("/api/recommend/wishlist/count")
-                    .queryParam("preferred_categories",categoryFirst.getCategory())
-                    .queryParam("preferred_categories",categorySecond.getCategory())
-                    .toUriString();
-
-            String response = restTemplate.getForObject(urlStr, String.class);
-            log.info("category 기반 : {}", response);
-
-            BookRecommendByCategoryDto dto = objectMapper.readValue(response, new TypeReference<BookRecommendByCategoryDto>() {});
+        BookReviewDto list = objectMapper.readValue(response, BookReviewDto.class);
+        return ResponseEntity.ok(list);
+    }
 
 
-            return dto;
-        }
+    // 카테고리 높은 2개 보내고 추천 도서들 받기
+    private BookRecommendByCategoryDto getBooksByCategoryCount(Wishcategory categoryFirst, Wishcategory categorySecond) throws IOException {
 
-        // isbn 보내고 비슷한 도서들 받기
-        public ResponseEntity<?> getSimilarBook (String bookId) throws IOException {
+        // ML 서버 URL 설정
+        String urlStr = UriComponentsBuilder.fromHttpUrl(url)
+                .path("/api/recommend/wishlist/count")
+                .queryParam("preferred_categories", categoryFirst.getCategory())
+                .queryParam("preferred_categories", categorySecond.getCategory())
+                .toUriString();
 
-            // ML 서버 URL 설정
-            String urlStr = UriComponentsBuilder.fromHttpUrl(url)
-                    .path("/api/recommend/similar/" + bookId)
-                    .toUriString();
+        String response = restTemplate.getForObject(urlStr, String.class);
+        log.info("category 기반 : {}", response);
 
-            String response = restTemplate.getForObject(urlStr, String.class);
-            log.info(response);
-            return ResponseEntity.ok(parseJsonResponse(response));
-        }
+        BookRecommendByCategoryDto dto = objectMapper.readValue(response, new TypeReference<BookRecommendByCategoryDto>() {
+        });
 
 
-        // 받은 도서(isbn,coverUrl) 변환
-        public List<BookByMlDto> parseJsonResponse (String response) throws IOException {
-            List<BookByMlDto> bookList = new ArrayList<>();
+        return dto;
+    }
 
-            bookList = objectMapper.readValue(response, new TypeReference<List<BookByMlDto>>() {
-            });
-            return bookList;
-        }
-        // 즐겨찾기
+    // isbn 보내고 비슷한 도서들 받기
+    public ResponseEntity<?> getSimilarBook(String bookId) throws IOException {
 
-        @Transactional
-        public ResponseEntity<String> addWishlist (String isbn, Long userId) throws JsonProcessingException {
-            // 유저를 찾고, 없으면 예외 발생
-            User user = userRepository.findById(userId)
-                    .orElseThrow(() -> new EntityNotFoundException("해당 유저는 존재하지 않습니다."));
-       //     System.out.println(user.getUserId());
+        // ML 서버 URL 설정
+        String urlStr = UriComponentsBuilder.fromHttpUrl(url)
+                .path("/api/recommend/similar/" + bookId)
+                .toUriString();
 
-            // 책을 찾고, 없으면 예외 발생
-            Book optionalBook = bookRepository.findByBookId(isbn).orElseThrow(() -> new EntityNotFoundException("해당 책은 존재하지 않습니다."));
-     //       System.out.println(optionalBook.getBookId());
+        String response = restTemplate.getForObject(urlStr, String.class);
+        log.info(response);
+        return ResponseEntity.ok(parseJsonResponse(response));
+    }
+
+
+    // 받은 도서(isbn,coverUrl) 변환
+    public List<BookDisplayDto> parseJsonResponse(String response) throws IOException {
+        List<BookDisplayDto> bookList = new ArrayList<>();
+
+        bookList = objectMapper.readValue(response, new TypeReference<List<BookDisplayDto>>() {
+        });
+        return bookList;
+    }
+    // 즐겨찾기
+
+    @Transactional
+    public ResponseEntity<String> addWishlist(String isbn, Long userId) throws JsonProcessingException {
+        // 유저를 찾고, 없으면 예외 발생
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new EntityNotFoundException("해당 유저는 존재하지 않습니다."));
+        //     System.out.println(user.getUserId());
+
+        // 책을 찾고, 없으면 예외 발생
+        Book optionalBook = bookRepository.findByBookId(isbn).orElseThrow(() -> new EntityNotFoundException("해당 책은 존재하지 않습니다."));
+        //       System.out.println(optionalBook.getBookId());
 //            Book book;
 
 //            if (optionalBook != null) {
@@ -252,109 +270,108 @@ public class BookService {
 //                book = new Book(findBookAladin(isbn));
 //                bookRepository.save(book);
 //            }
-            // 위시리스트 생성
-            Wishlist wishlist = new Wishlist(user, optionalBook);
+        // 위시리스트 생성
+        Wishlist wishlist = new Wishlist(user, optionalBook);
 
-            if(wishlistRepository.existsByUserUserIdAndBookBookId(userId,optionalBook.getBookId())) {
-                throw new EntityExistsException("이미 존재하는 위시리스트입니다.");
-            }
+        if (wishlistRepository.existsByUserUserIdAndBookBookId(userId, optionalBook.getBookId())) {
+            throw new EntityExistsException("이미 존재하는 위시리스트입니다.");
+        }
 
 
-            wishlistRepository.save(wishlist); // 위시리스트 저장
+        wishlistRepository.save(wishlist); // 위시리스트 저장
 
 //            // 상세조회시 위시 카테고리 up
 //            wishcategoryService.increaseWishcategory(userId, optionalBook.getCategory());
 
-            // 위시카테고리 저장
-            Wishcategory wishcategory = wishcategoryRepository.findByUser_UserIdAndCategory(userId, optionalBook.getCategory()).orElseThrow(() -> new EntityNotFoundException("해당 위시카테고리 항목은 존재하지 않습니다."));
+        // 위시카테고리 저장
+        Wishcategory wishcategory = wishcategoryRepository.findByUser_UserIdAndCategory(userId, optionalBook.getCategory()).orElseThrow(() -> new EntityNotFoundException("해당 위시카테고리 항목은 존재하지 않습니다."));
 
-            log.info("위시 카테고리 저장 전: {}, {}", optionalBook.getCategory(),wishcategory.getCount());
+        log.info("위시 카테고리 저장 전: {}, {}", optionalBook.getCategory(), wishcategory.getCount());
 
-            wishcategory.increase();
+        wishcategory.increase();
 
-            log.info("위시 카테고리 저장 후: {}, {}", optionalBook.getCategory(),wishcategory.getCount());
+        log.info("위시 카테고리 저장 후: {}, {}", optionalBook.getCategory(), wishcategory.getCount());
 
-            wishcategoryRepository.save(wishcategory);
+        wishcategoryRepository.save(wishcategory);
 
 
-            return ResponseEntity.ok("위시리스트에 추가되었습니다.");
-        }
+        return ResponseEntity.ok("위시리스트에 추가되었습니다.");
+    }
 
-        @Transactional
-        public ResponseEntity<String> deleteWishlist (String isbn, Long userId) throws JsonProcessingException {
-            // 유저를 찾고, 없으면 예외 발생
-            User user = userRepository.findById(userId)
-                    .orElseThrow(() -> new EntityNotFoundException("해당 유저는 존재하지 않습니다."));
+    @Transactional
+    public ResponseEntity<String> deleteWishlist(String isbn, Long userId) throws JsonProcessingException {
+        // 유저를 찾고, 없으면 예외 발생
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new EntityNotFoundException("해당 유저는 존재하지 않습니다."));
 
-            // 책을 찾고, 없으면 예외 발생
-            Book book = bookRepository.findByBookId(isbn)
-                    .orElseThrow(() -> new EntityNotFoundException("해당 책 정보는 존재하지 않습니다."));
+        // 책을 찾고, 없으면 예외 발생
+        Book book = bookRepository.findByBookId(isbn)
+                .orElseThrow(() -> new EntityNotFoundException("해당 책 정보는 존재하지 않습니다."));
 
-            // 위시리스트에서 해당 유저와 책 정보를 찾고 삭제
-            Wishlist wishlist = wishlistRepository.findByUserAndBook(user, book)
-                    .orElseThrow(() -> new EntityNotFoundException("해당 위시리스트 항목은 존재하지 않습니다."));
+        // 위시리스트에서 해당 유저와 책 정보를 찾고 삭제
+        Wishlist wishlist = wishlistRepository.findByUserAndBook(user, book)
+                .orElseThrow(() -> new EntityNotFoundException("해당 위시리스트 항목은 존재하지 않습니다."));
 
-            wishlistRepository.delete(wishlist);
+        wishlistRepository.delete(wishlist);
 //            wishcategoryService.decreaseWishcategory(userId, book.getCategory());
 
-            Wishcategory wishcategory = wishcategoryRepository.findByUser_UserIdAndCategory(userId, book.getCategory()).orElseThrow(() -> new EntityNotFoundException("해당 위시카테고리 항목은 존재하지 않습니다."));
+        Wishcategory wishcategory = wishcategoryRepository.findByUser_UserIdAndCategory(userId, book.getCategory()).orElseThrow(() -> new EntityNotFoundException("해당 위시카테고리 항목은 존재하지 않습니다."));
 
-            log.info("위시 카테고리 삭제전 : {} , {}", book.getCategory(),wishcategory.getCount());
+        log.info("위시 카테고리 삭제전 : {} , {}", book.getCategory(), wishcategory.getCount());
 
-            wishcategory.decrease();
+        wishcategory.decrease();
 
-            log.info("위시 카테고리 삭제후 : {} , {}", book.getCategory(),wishcategory.getCount());
+        log.info("위시 카테고리 삭제후 : {} , {}", book.getCategory(), wishcategory.getCount());
 
-            wishcategoryRepository.save(wishcategory);
+        wishcategoryRepository.save(wishcategory);
 
-            return ResponseEntity.ok("위시리스트에 삭제되었습니다.");
-        }
+        return ResponseEntity.ok("위시리스트에 삭제되었습니다.");
+    }
 
 
-        private BookDetailDto findBookAladin (String isbn) throws JsonProcessingException {
-            // url에 api 키 와 isbn 동적으로 삽입 ( json 형식으로 받아옴 )
-            String apiUrl = String.format("https://www.aladin.co.kr/ttb/api/ItemLookUp.aspx?ttbkey=%s&itemIdType=ISBN&ItemId=%s&output=js&Version=20131101&SearchTarget=Book", apiKey, isbn);
-            String response = restTemplate.getForObject(apiUrl, String.class); // 지정 url 로 get 요청
+    private BookDetailDto findBookAladin(String isbn) throws JsonProcessingException {
+        // url에 api 키 와 isbn 동적으로 삽입 ( json 형식으로 받아옴 )
+        String apiUrl = String.format("https://www.aladin.co.kr/ttb/api/ItemLookUp.aspx?ttbkey=%s&itemIdType=ISBN&ItemId=%s&output=js&Version=20131101&SearchTarget=Book", apiKey, isbn);
+        String response = restTemplate.getForObject(apiUrl, String.class); // 지정 url 로 get 요청
 
-            //파싱
-            JsonNode root = objectMapper.readTree(response);
-            JsonNode item = root.path("item").get(0);
-            // 상세 책 검색하거나 좋다고 누르면 카테고리에 + 1 해줘야해
+        //파싱
+        JsonNode root = objectMapper.readTree(response);
+        JsonNode item = root.path("item").get(0);
+        // 상세 책 검색하거나 좋다고 누르면 카테고리에 + 1 해줘야해
 
-            // 카테고리 분리 로직
-            String category = item.path("categoryName").asText();
-            String mainCategory = "";
-            String subCategory = "";
+        // 카테고리 분리 로직
+        String category = item.path("categoryName").asText();
+        String mainCategory = "";
+        String subCategory = "";
 
-            // 상하위 카테고리 분리
-            if (category.contains(">")) {
-                String[] categoryParts = category.split(">");
-                if (categoryParts.length > 1) {
-                    mainCategory = categoryParts[1].trim();
-                    subCategory = categoryParts[2].trim();
-                }
+        // 상하위 카테고리 분리
+        if (category.contains(">")) {
+            String[] categoryParts = category.split(">");
+            if (categoryParts.length > 1) {
+                mainCategory = categoryParts[1].trim();
+                subCategory = categoryParts[2].trim();
             }
-
-            String itemId = item.path("itemId").asText();
-            BookDetailDto bookDetailDto = new BookDetailDto(
-                    isbn,
-                    item.path("cover").asText(),
-                    item.path("title").asText(),
-                    item.path("author").asText(),
-                    item.path("SearchTarget").asText(),  //searchtarget 과 동일하다
-                    item.path("pubDate").asText(),
-                    item.path("publisher").asText(),
-                    mainCategory,
-                    subCategory,
-                    item.path("description").asText(),
-                    itemId
-            );
-            return bookDetailDto;
         }
 
+        String itemId = item.path("itemId").asText();
+        BookDetailDto bookDetailDto = new BookDetailDto(
+                isbn,
+                item.path("cover").asText(),
+                item.path("title").asText(),
+                item.path("author").asText(),
+                item.path("SearchTarget").asText(),  //searchtarget 과 동일하다
+                item.path("pubDate").asText(),
+                item.path("publisher").asText(),
+                mainCategory,
+                subCategory,
+                item.path("description").asText(),
+                itemId
+        );
+        return bookDetailDto;
+    }
 
 
-    public ResponseEntity<?> getBookList (Long userId) throws IOException {
+    public ResponseEntity<?> getBookList(Long userId) throws IOException {
 
         List<Wishlist> wishlists = wishlistRepository.findByUserUserId(userId);
         ArrayList<String> bookList = new ArrayList<>();
@@ -382,7 +399,7 @@ public class BookService {
 
         Map<String, Long> clicksMap = new HashMap<>();
         for (BookClick bookClick1 : bookClick) {
-            clicksMap.put(bookClick1.getBookId(),bookClick1.getClick());
+            clicksMap.put(bookClick1.getBookId(), bookClick1.getClick());
         }
 
 
@@ -394,7 +411,7 @@ public class BookService {
 
 //            System.out.println("prefe : " + br.getUser_preferences().toString() + "click : " + br.getBookClickDtos().toString());
 
-        log.info("prefe: {}, click: {}",br.getUser_preferences().toString(),br.getClicksMap().toString());
+        log.info("prefe: {}, click: {}", br.getUser_preferences().toString(), br.getClicksMap().toString());
 
         // ML 서버 URL 설정
         String urlStr = UriComponentsBuilder.fromHttpUrl(url)
@@ -405,12 +422,11 @@ public class BookService {
 
         String jsonResponse = response.getBody();
 
-        List<BookByMlDto> booksByRecommend = objectMapper.readValue(jsonResponse, new TypeReference<List<BookByMlDto>>() {});
+        List<BookDisplayDto> booksByRecommend = objectMapper.readValue(jsonResponse, new TypeReference<List<BookDisplayDto>>() {
+        });
 
 
 //            System.out.println("isbn:"+booksByRecommend.get(0).getIsbn13()+" cover}"+booksByRecommend.get(0).getCoverURL());
-
-
 
 
         // 카테고리 높은거 2개 보내기
@@ -425,17 +441,19 @@ public class BookService {
                 priorityQueue.poll(); // 최소 값을 제거하여 상위 2개의 요소만 유지
             }
         }
-        Wishcategory categoryFirst =  priorityQueue.poll();
-        Wishcategory categorySecond =  priorityQueue.poll();
+        Wishcategory categoryFirst = priorityQueue.poll();
+        Wishcategory categorySecond = priorityQueue.poll();
 
-        BookRecommendByCategoryDto booksByCategoryCount = getBooksByCategoryCount(categoryFirst,categorySecond);
+        BookRecommendByCategoryDto booksByCategoryCount = getBooksByCategoryCount(categoryFirst, categorySecond);
 
         List<String> categories = new ArrayList<>();
         categories.add(categoryFirst.getCategory());
         categories.add(categorySecond.getCategory());
-        BookRecommendResponse bookRecommendResponse = new BookRecommendResponse(categories,booksByRecommend,booksByCategoryCount.getFirst(),booksByCategoryCount.getSecond());
+        BookRecommendResponse bookRecommendResponse = new BookRecommendResponse(categories, booksByRecommend, booksByCategoryCount.getFirst(), booksByCategoryCount.getSecond());
 
         return ResponseEntity.ok(bookRecommendResponse);
 //        return ResponseEntity.ok(br);
     }
-    }
+
+
+}

@@ -1,19 +1,24 @@
 package com.example.bookwise.domain.book.controller;
 
-import com.example.bookwise.domain.book.dto.BookByMlDto;
+import com.example.bookwise.domain.book.dto.BookDisplayDto;
+import com.example.bookwise.domain.book.dto.BookDisplayDtoResponse;
 import com.example.bookwise.domain.book.service.BookService;
 import com.example.bookwise.domain.oauth.jwt.JwtTokenProvider;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import io.swagger.v3.oas.annotations.Operation;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/api/book")
+@Slf4j
 public class BookController {
 
     private final BookService bookService;
@@ -30,8 +35,7 @@ public class BookController {
 
         //실험할 코드 추가
         bookService.getBookDisplay();
-        bookService.getBookDisplay1();
-        bookService.getBookDisplay2();
+
 
         long afterTime = System.currentTimeMillis(); // 코드 실행 후에 시간 받아오기
         long secDiffTime = (afterTime - beforeTime)/1000; //두 시간에 차 계산
@@ -41,6 +45,24 @@ public class BookController {
         return ResponseEntity.ok("Success");
     }
 
+    @GetMapping("/display")
+    public BookDisplayDtoResponse getBookListByCategory() throws Exception {
+
+        long beforeTime = System.currentTimeMillis(); //코드 실행 전에 시간 받아오기
+
+
+        BookDisplayDtoResponse bookDisplayDtoResponse = bookService.getBookListByCategory();
+
+
+        long afterTime = System.currentTimeMillis(); // 코드 실행 후에 시간 받아오기
+        long secDiffTime = (afterTime - beforeTime)/1000; //두 시간에 차 계산
+        System.out.println("시간차이(m) : "+secDiffTime);
+
+        log.info("추천도서 개수 : "+bookDisplayDtoResponse.getBookDisplayByCategoryDto().size());
+
+
+        return bookDisplayDtoResponse;
+    }
 
 
 
